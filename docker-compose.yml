@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: envirowatch-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-envirowatch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-envirowatch}
+      POSTGRES_DB: ${POSTGRES_DB:-envirowatch}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-envirowatch} -d ${POSTGRES_DB:-envirowatch}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
