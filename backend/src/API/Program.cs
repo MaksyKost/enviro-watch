@@ -1,5 +1,11 @@
+using EnviroWatch.API.DependencyInjection;
+using EnviroWatch.API.Hubs;
 using EnviroWatch.API.Middleware;
+using EnviroWatch.API.Services;
+using EnviroWatch.Application.DependencyInjection;
+using EnviroWatch.Application.Interfaces;
 using EnviroWatch.Infrastructure;
+using EnviroWatch.Infrastructure.Data;
 using EnviroWatch.Infrastructure.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,18 +16,14 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
         "Connection string 'DefaultConnection' is not configured.");
 
 builder.Services.AddInfrastructure(connectionString);
+builder.Services.AddApplication(builder.Configuration);
+builder.Services.AddApiAuthentication(builder.Configuration);
+builder.Services.AddSingleton<IDataUpdateNotifier, SignalRDataUpdateNotifier>();
 
+builder.Services.AddSignalR();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(options =>
-{
-    options.SwaggerDoc("v1", new()
-    {
-        Title = "EnviroWatch API",
-        Version = "v1",
-        Description = "Real-time environmental monitoring platform API."
-    });
-});
+builder.Services.AddSwaggerWithJwt();
 
 builder.Services.AddCors(options =>
 {
@@ -46,6 +48,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseCors("Frontend");
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new
 {
@@ -57,11 +61,23 @@ app.MapGet("/health", () => Results.Ok(new
 .WithOpenApi();
 
 app.MapControllers();
+app.MapHub<DashboardHub>(DashboardHub.HubPath);
 
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
+
+    if (app.Environment.IsDevelopment())
+    {
+        var userRepository = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+        var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+        var snapshotRepository = scope.ServiceProvider.GetRequiredService<IDataSnapshotRepository>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+        await UserSeeder.SeedAsync(userRepository, passwordHasher, logger);
+        await DataSeeder.SeedAsync(snapshotRepository, logger);
+    }
 }
 
 app.Run();
