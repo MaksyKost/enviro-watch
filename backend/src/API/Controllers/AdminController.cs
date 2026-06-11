@@ -1,7 +1,6 @@
 using EnviroWatch.Application.Authorization;
 using EnviroWatch.Application.DTOs;
 using EnviroWatch.Application.Interfaces;
-using EnviroWatch.Domain.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,10 +12,23 @@ namespace EnviroWatch.API.Controllers;
 public class AdminController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IAdminService _adminService;
 
-    public AdminController(IAuthService authService)
+    public AdminController(IAuthService authService, IAdminService adminService)
     {
         _authService = authService;
+        _adminService = adminService;
+    }
+
+    /// <summary>
+    /// Platform statistics. Admin only.
+    /// </summary>
+    [HttpGet("stats")]
+    [ProducesResponseType(typeof(AdminStatsDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<AdminStatsDto>> GetStats(CancellationToken cancellationToken)
+    {
+        var stats = await _adminService.GetStatsAsync(cancellationToken);
+        return Ok(stats);
     }
 
     /// <summary>
@@ -52,5 +64,3 @@ public class AdminController : ControllerBase
         }
     }
 }
-
-public record UpdateUserRoleRequest(UserRole Role);

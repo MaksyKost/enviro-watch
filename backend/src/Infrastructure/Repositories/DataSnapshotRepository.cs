@@ -75,4 +75,26 @@ public class DataSnapshotRepository : IDataSnapshotRepository
 
     public Task<bool> AnyAsync(CancellationToken cancellationToken = default) =>
         _db.DataSnapshots.AnyAsync(cancellationToken);
+
+    public async Task<int> DeleteOlderThanAsync(DateTime cutoff, CancellationToken cancellationToken = default) =>
+        await _db.DataSnapshots
+            .Where(s => s.Timestamp < cutoff)
+            .ExecuteDeleteAsync(cancellationToken);
+
+    public Task<long> CountAsync(CancellationToken cancellationToken = default) =>
+        _db.DataSnapshots.LongCountAsync(cancellationToken);
+
+    public Task<DataSnapshot?> GetLatestAsync(
+        string region,
+        string metric,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedMetric = metric.Trim().ToLowerInvariant();
+        var normalizedRegion = region.Trim();
+
+        return _db.DataSnapshots.AsNoTracking()
+            .Where(s => s.Region == normalizedRegion && s.Metric.ToLower() == normalizedMetric)
+            .OrderByDescending(s => s.Timestamp)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
 }

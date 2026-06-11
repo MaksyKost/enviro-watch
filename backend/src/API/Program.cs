@@ -1,4 +1,6 @@
+using EnviroWatch.API.Configuration;
 using EnviroWatch.API.DependencyInjection;
+using FluentValidation.AspNetCore;
 using EnviroWatch.API.Hubs;
 using EnviroWatch.API.Middleware;
 using EnviroWatch.API.Services;
@@ -8,6 +10,8 @@ using EnviroWatch.Infrastructure;
 using EnviroWatch.Infrastructure.Data;
 using EnviroWatch.Infrastructure.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
+
+DotEnvLoader.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +26,7 @@ builder.Services.AddSingleton<IDataUpdateNotifier, SignalRDataUpdateNotifier>();
 
 builder.Services.AddSignalR();
 builder.Services.AddControllers();
+builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerWithJwt();
 

@@ -15,4 +15,6 @@ public interface IUserRepository
     Task UpdateRoleAsync(Guid userId, UserRole role, CancellationToken cancellationToken = default);
 
     Task<bool> AnyAsync(CancellationToken cancellationToken = default);
+
+    Task<int> CountAsync(CancellationToken cancellationToken = default);
 }

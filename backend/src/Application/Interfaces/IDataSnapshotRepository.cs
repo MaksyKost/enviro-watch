@@ -14,4 +14,13 @@ public interface IDataSnapshotRepository
         CancellationToken cancellationToken = default);
 
     Task<bool> AnyAsync(CancellationToken cancellationToken = default);
+
+    Task<DataSnapshot?> GetLatestAsync(
+        string region,
+        string metric,
+        CancellationToken cancellationToken = default);
+
+    Task<int> DeleteOlderThanAsync(DateTime cutoff, CancellationToken cancellationToken = default);
+
+    Task<long> CountAsync(CancellationToken cancellationToken = default);
 }

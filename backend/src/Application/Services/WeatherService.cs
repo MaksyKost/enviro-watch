@@ -47,7 +47,7 @@ public class WeatherService : IWeatherService
                     continue;
                 }
 
-                snapshots.AddRange(MapToSnapshots(region, weather));
+                snapshots.AddRange(MapToSnapshots(region, weather, SourceName));
             }
             catch (Exception ex)
             {
@@ -63,33 +63,13 @@ public class WeatherService : IWeatherService
 
     internal static IEnumerable<DataSnapshot> MapToSnapshots(
         MonitoredRegionOptions region,
-        CurrentWeatherData weather)
+        CurrentWeatherData weather,
+        string source)
     {
-        var timestamp = weather.Timestamp.Kind == DateTimeKind.Unspecified
-            ? DateTime.SpecifyKind(weather.Timestamp, DateTimeKind.Utc)
-            : weather.Timestamp.ToUniversalTime();
+        var timestamp = SnapshotFactory.NormalizeTimestamp(weather.Timestamp);
 
-        yield return CreateSnapshot(region, "temperature", weather.TemperatureCelsius, "°C", timestamp);
-        yield return CreateSnapshot(region, "humidity", weather.HumidityPercent, "%", timestamp);
-        yield return CreateSnapshot(region, "wind", weather.WindSpeedKmh, "km/h", timestamp);
+        yield return SnapshotFactory.Create(source, region, "temperature", weather.TemperatureCelsius, "°C", timestamp);
+        yield return SnapshotFactory.Create(source, region, "humidity", weather.HumidityPercent, "%", timestamp);
+        yield return SnapshotFactory.Create(source, region, "wind", weather.WindSpeedKmh, "km/h", timestamp);
     }
-
-    private static DataSnapshot CreateSnapshot(
-        MonitoredRegionOptions region,
-        string metric,
-        double value,
-        string unit,
-        DateTime timestamp) =>
-        new()
-        {
-            Id = Guid.NewGuid(),
-            Source = SourceName,
-            Region = region.Name,
-            Metric = metric,
-            Value = Math.Round(value, 1),
-            Unit = unit,
-            Lat = region.Latitude,
-            Lon = region.Longitude,
-            Timestamp = timestamp
-        };
 }

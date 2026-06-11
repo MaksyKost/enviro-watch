@@ -42,4 +42,7 @@ public class UserRepository : IUserRepository
 
     public Task<bool> AnyAsync(CancellationToken cancellationToken = default) =>
         _db.Users.AnyAsync(cancellationToken);
+
+    public Task<int> CountAsync(CancellationToken cancellationToken = default) =>
+        _db.Users.CountAsync(cancellationToken);
 }

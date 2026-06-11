@@ -53,28 +53,31 @@ public class DataFetcherBackgroundService : BackgroundService
         try
         {
             using var scope = _scopeFactory.CreateScope();
-            var weatherService = scope.ServiceProvider.GetRequiredService<IWeatherService>();
+            var dataFetchService = scope.ServiceProvider.GetRequiredService<IDataFetchService>();
             var repository = scope.ServiceProvider.GetRequiredService<IDataSnapshotRepository>();
             var notifier = scope.ServiceProvider.GetRequiredService<IDataUpdateNotifier>();
 
-            var snapshots = await weatherService.FetchCurrentWeatherSnapshotsAsync(cancellationToken);
+            var snapshots = await dataFetchService.FetchAllSnapshotsAsync(cancellationToken);
 
             if (snapshots.Count == 0)
             {
-                _logger.LogWarning("No weather snapshots fetched in this cycle");
+                _logger.LogWarning("No snapshots fetched in this cycle");
                 return;
             }
 
             await repository.AddRangeAsync(snapshots, cancellationToken);
 
-            var updates = DataUpdateMapper.FromWeatherSnapshots(snapshots);
+            var weatherSnapshots = snapshots
+                .Where(s => s.Source is "openmeteo" or "openweather")
+                .ToList();
+            var updates = DataUpdateMapper.FromWeatherSnapshots(weatherSnapshots);
             if (updates.Count > 0)
             {
                 await notifier.NotifyDataUpdatesAsync(updates, cancellationToken);
             }
 
             _logger.LogInformation(
-                "Persisted {Count} weather snapshots and pushed {UpdateCount} live updates",
+                "Persisted {Count} snapshots and pushed {UpdateCount} live weather updates",
                 snapshots.Count,
                 updates.Count);
         }
