@@ -20,7 +20,11 @@ public static class DataUpdateMapper
 
     private static DataUpdateDto? BuildWeatherUpdate(IGrouping<string, DataSnapshot> regionGroup)
     {
-        var metrics = regionGroup.ToDictionary(s => s.Metric, s => s.Value);
+        var metrics = regionGroup
+            .GroupBy(s => s.Metric)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(s => s.Timestamp).First().Value);
         var timestamp = regionGroup.Max(s => s.Timestamp);
 
         if (!metrics.TryGetValue("temperature", out var temperature)

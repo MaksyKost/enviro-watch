@@ -41,7 +41,28 @@ public class DataUpdateMapperTests
         Assert.Empty(updates);
     }
 
+    [Fact]
+    public void FromWeatherSnapshots_PrefersLatestMetricWhenSourcesOverlap()
+    {
+        var older = new DateTime(2026, 6, 7, 12, 0, 0, DateTimeKind.Utc);
+        var newer = new DateTime(2026, 6, 7, 12, 0, 30, DateTimeKind.Utc);
+        var snapshots = new[]
+        {
+            CreateSnapshot("openmeteo", "Wroclaw,PL", "temperature", 18.0, older),
+            CreateSnapshot("openweather", "Wroclaw,PL", "temperature", 19.5, newer),
+            CreateSnapshot("openmeteo", "Wroclaw,PL", "humidity", 65, newer),
+            CreateSnapshot("openmeteo", "Wroclaw,PL", "wind", 12, newer)
+        };
+
+        var updates = DataUpdateMapper.FromWeatherSnapshots(snapshots);
+
+        var update = Assert.Single(updates);
+        Assert.Equal(19.5, update.Data.Temperature);
+        Assert.Equal(newer, update.Timestamp);
+    }
+
     private static DataSnapshot CreateSnapshot(
+        string source,
         string region,
         string metric,
         double value,
@@ -49,10 +70,17 @@ public class DataUpdateMapperTests
         new()
         {
             Id = Guid.NewGuid(),
-            Source = "openmeteo",
+            Source = source,
             Region = region,
             Metric = metric,
             Value = value,
             Timestamp = timestamp
         };
+
+    private static DataSnapshot CreateSnapshot(
+        string region,
+        string metric,
+        double value,
+        DateTime timestamp) =>
+        CreateSnapshot("openmeteo", region, metric, value, timestamp);
 }

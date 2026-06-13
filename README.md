@@ -1,85 +1,213 @@
-# enviro-watch
+# EnviroWatch
 
-Real-time environmental monitoring platform built with ASP.NET Core, SignalR, and React. Aggregates live data from weather, air quality, and air traffic APIs with user-configurable dashboards, threshold alerts, and historical data persistence.
+Real-time environmental monitoring platform. ASP.NET Core backend aggregates weather, air quality, and air traffic data; React frontend provides live dashboards, alerts, custom panels, and admin tools.
 
 ## Project structure
 
 ```
 enviro-watch/
-├── backend/          # ASP.NET Core 8 API (this repo's backend)
-├── frontend/         # React app (partner)
-└── docker-compose.yml
+├── backend/            # ASP.NET Core 8 API
+├── frontend/           # React + Vite + TypeScript
+├── docker-compose.yml  # Full stack (postgres + api + frontend)
+└── .env.example        # Shared environment template
 ```
 
 ## Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- [Docker](https://www.docker.com/) (for PostgreSQL)
+| Tool | Version | Needed for |
+|------|---------|------------|
+| Docker | recent | Full stack, or PostgreSQL only |
+| .NET SDK | 8 | Running API outside Docker |
+| Node.js | 20+ | Frontend dev server (`npm run dev`) |
 
-## Quick start (backend)
+---
 
-### 1. Environment
+## How to run
+
+There are two common setups. **They use different API wiring on the frontend** — read the table below before debugging CORS or 404 errors.
+
+### Option A — Full stack in Docker (simplest)
+
+Everything runs in containers. The browser never talks to the API directly.
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+| Service | URL | Notes |
+|---------|-----|-------|
+| Frontend | http://localhost:3000 | nginx serves SPA, proxies `/api`, `/hubs`, `/health` to the API container |
+| API (direct) | http://localhost:5000 | Swagger, health checks, manual API testing |
+| PostgreSQL | localhost:5432 | Credentials from `.env` |
+
+**Frontend → API in Docker:** requests go to the same origin (`localhost:3000/api/...`). nginx forwards them to `api:8080` inside the Docker network. The frontend build sets `VITE_API_URL=` (empty) on purpose.
+
+### Option B — Local development (mixed)
+
+Typical day-to-day setup: PostgreSQL in Docker, API and frontend on the host.
+
+```bash
+# 1. Environment
+cp .env.example .env
+
+# 2. Database only
+docker compose up -d postgres
+
+# 3. Backend
+cd backend
+dotnet restore
+dotnet run --project src/API
+
+# 4. Frontend (separate terminal)
+cd frontend
+cp .env.example .env
+npm install
+npm run dev
+```
+
+| Service | URL | Notes |
+|---------|-----|-------|
+| Frontend (Vite) | http://localhost:5173 | Dev server with hot reload |
+| API | http://localhost:5000 | `dotnet run`, reads `.env` from repo root |
+| PostgreSQL | localhost:5432 | Docker container |
+
+**Frontend → API locally:** two valid approaches:
+
+| `frontend/.env` | How requests reach the API |
+|-----------------|----------------------------|
+| `VITE_API_URL=http://localhost:5000` | Browser calls API directly (CORS must allow `:5173`) |
+| `VITE_API_URL=` (empty) | Browser calls `:5173/api/...`, Vite proxy forwards to `:5000` |
+
+Default in `.env.example` is the direct URL. Both work; empty URL is closer to the Docker/production behaviour.
+
+### Docker vs local — quick comparison
+
+| | Docker stack | Local dev |
+|---|-------------|-----------|
+| Frontend URL | `:3000` | `:5173` |
+| API URL (browser) | same origin via nginx proxy | `:5000` direct or via Vite proxy |
+| API URL (server) | container `api:8080` | `localhost:5000` |
+| DB host (from API) | `postgres` (Docker network) | `localhost` |
+| Frontend env | `VITE_API_URL=` at build time | `frontend/.env` at dev time |
+| Rebuild after frontend changes | `docker compose up -d --build frontend` | automatic (HMR) |
+
+### Verify the stack
+
+```bash
+curl http://localhost:5000/health
+```
+
+Open Swagger: http://localhost:5000/swagger
+
+---
+
+## Default admin account
+
+Seeded automatically on first API startup (Development):
+
+| Field | Value |
+|-------|-------|
+| Email | `admin@envirowatch.local` |
+| Password | `Admin123!` |
+
+---
+
+## Frontend
+
+React app lives in [`frontend/`](frontend/). See [`frontend/README.md`](frontend/README.md) for page routes, stack, and frontend-specific setup.
+
+| Route | Description | Auth |
+|-------|-------------|------|
+| `/` | Live dashboard — metrics, chart, SignalR feed, map | Public |
+| `/login` | Login & register | Public |
+| `/dashboards` | Custom dashboard builder | JWT |
+| `/alerts` | Threshold alerts + trigger history | JWT |
+| `/observations` | Manual field measurements | JWT (submit: Analyst+) |
+| `/admin` | Stats & user management | Admin |
+
+Design mockups (reference only): `frontend/design-reference/`
+
+---
+
+## Configuration
+
+Copy `.env.example` to `.env` in the repo root:
 
 ```bash
 cp .env.example .env
 ```
 
-### 2. Start stack (PostgreSQL + API)
+| Variable | Used by | Purpose |
+|----------|---------|---------|
+| `POSTGRES_*` | Docker postgres + local API | Database credentials |
+| `ConnectionStrings__DefaultConnection` | Local API (`dotnet run`) | Points to `localhost:5432` |
+| `JWT_SECRET` | API | JWT signing key (min 32 chars) |
+| `OPENWEATHER_API_KEY` | API | Optional; without it OpenWeather source is skipped |
 
-```bash
-docker compose up -d
+Data fetch regions are configured in `backend/src/API/appsettings.json`:
+
+```json
+"DataFetch": {
+  "IntervalSeconds": 30,
+  "Regions": [
+    { "Name": "Wroclaw,PL", "Latitude": 51.1, "Longitude": 17.0 }
+  ]
+}
 ```
 
-Or PostgreSQL only:
+In Development, the API seeds ~147 sample snapshots (48h history) if the database is empty.
 
-```bash
-docker compose up -d postgres
-cd backend && dotnet run --project src/API
-```
+---
 
-### 3. Run API locally
+## Authentication
 
-```bash
-cd backend
-dotnet restore
-dotnet run --project src/API
-```
-
-### 4. Verify
-
-- Health: http://localhost:5000/health
-- Swagger: http://localhost:5000/swagger
-
-## Development phases
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 0 | Done | Solution scaffold, Docker, health endpoint |
-| 1 | Done | DataSnapshot REST API with filtering |
-| 2 | Done | Open-Meteo + background fetcher (every 30s) |
-| 3 | Done | SignalR live updates |
-| 4 | Done | JWT auth + roles (Admin / Analyst / Viewer) |
-| 5 | Done | Alerts CRUD + background threshold checker |
-| 6 | Done | OpenWeather, OpenAQ, OpenSky (parallel fetch) |
-| 7 | Done | Manual observations |
-| 8 | Done | Dashboards & widgets |
-| 9 | Done | FluentValidation, cleanup job, Docker, admin stats |
-
-## API base URL
-
-```
-http://localhost:5000
-```
-
-Frontend CORS is configured for `http://localhost:5173` (Vite) and `http://localhost:3000`.
-
-## API examples (Phase 1)
+JWT bearer auth with three roles: **Admin**, **Analyst**, **Viewer**.
 
 ```http
-GET /api/data/snapshots?region=PL&metric=temperature&from=2026-06-01&page=1&pageSize=50
+POST /api/auth/register
+POST /api/auth/login
+GET  /api/auth/me              # requires token
 ```
 
-Response:
+Login example:
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@envirowatch.local",
+  "password": "Admin123!"
+}
+```
+
+Use the token: `Authorization: Bearer <token>`
+
+| Role | Access |
+|------|--------|
+| Viewer | Read dashboards, alerts, observations (own data) |
+| Analyst | + create alerts, observations, dashboards |
+| Admin | + user management, platform stats |
+
+`GET /api/data/snapshots` and the SignalR hub remain **public** so the live dashboard works without login.
+
+---
+
+## REST API overview
+
+Base URL: `http://localhost:5000` (always, whether API runs in Docker or locally).
+
+### Data snapshots
+
+```http
+GET /api/data/snapshots?region=Wroclaw,PL&metric=temperature&from=2026-06-01&page=1&pageSize=50
+GET /api/data/snapshots?source=openmeteo&metric=temperature
+GET /api/data/snapshots?source=opensky&metric=aircraft_count
+GET /api/data/snapshots?source=manual&metric=temperature
+```
+
+Response shape:
 
 ```json
 {
@@ -101,153 +229,48 @@ Response:
 }
 ```
 
-In Development mode the API seeds ~147 sample snapshots (48h, every 30 min) on first startup if the database is empty.
+### External data sources
 
-## Background data fetch (Phase 2)
+Fetched in parallel every 30 seconds:
 
-Open-Meteo weather data is fetched automatically every 30 seconds for configured regions.
+| Source | Metrics | API key |
+|--------|---------|---------|
+| `openmeteo` | temperature, humidity, wind | No |
+| `openweather` | temperature, humidity, wind | Yes (`OPENWEATHER_API_KEY`) |
+| `openaq` | pm25, pm10, aqi | No |
+| `opensky` | aircraft_count, avg_altitude | No |
 
-Configure regions in `backend/src/API/appsettings.json`:
+> OpenWeather keys can take up to 2 hours to activate after creation at [openweathermap.org/api](https://openweathermap.org/api).
 
-```json
-"DataFetch": {
-  "IntervalSeconds": 30,
-  "Regions": [
-    { "Name": "Wroclaw,PL", "Latitude": 51.1, "Longitude": 17.0 }
-  ]
-}
-```
+### SignalR live updates
 
-After startup, check logs for `Persisted N weather snapshots from Open-Meteo`, then query:
-
-```http
-GET /api/data/snapshots?source=openmeteo&metric=temperature
-```
-
-## SignalR live updates (Phase 3)
-
-**Hub URL:** `http://localhost:5000/hubs/dashboard`
+**Hub:** `http://localhost:5000/hubs/dashboard` (or same-origin `/hubs/dashboard` through frontend proxy)
 
 **Event:** `DataUpdate`
-
-Payload (one event per region after each fetch cycle):
 
 ```json
 {
   "type": "weather",
   "region": "Wroclaw,PL",
-  "data": {
-    "temperature": 18.4,
-    "humidity": 65,
-    "wind": 12
-  },
+  "data": { "temperature": 18.4, "humidity": 65, "wind": 12 },
   "timestamp": "2026-06-07T12:00:30Z"
 }
 ```
 
-### React / TypeScript example
+Hub methods: `SubscribeToRegion`, `UnsubscribeFromRegion` (optional region filter).
 
-```typescript
-import * as signalR from "@microsoft/signalr";
+### Alerts
 
-const connection = new signalR.HubConnectionBuilder()
-  .withUrl("http://localhost:5000/hubs/dashboard")
-  .withAutomaticReconnect()
-  .build();
-
-connection.on("DataUpdate", (update) => {
-  console.log(update.region, update.data.temperature);
-});
-
-await connection.start();
-
-// Optional: receive only one region
-await connection.invoke("SubscribeToRegion", "Wroclaw,PL");
-```
-
-All connected clients receive every `DataUpdate` via broadcast. `SubscribeToRegion` / `UnsubscribeFromRegion` are available on the hub for future region-filtered delivery.
-
-## Authentication (Phase 4)
-
-JWT bearer auth with roles: **Admin**, **Analyst**, **Viewer**.
-
-### Dev admin (seeded on first startup)
-
-| Field | Value |
-|-------|-------|
-| Email | `admin@envirowatch.local` |
-| Password | `Admin123!` |
-
-### Endpoints
-
-```http
-POST /api/auth/register
-POST /api/auth/login
-GET  /api/auth/me          # requires token
-GET  /api/admin/users      # Admin only
-PUT  /api/admin/users/{id}/role
-```
-
-### Login example
-
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "email": "admin@envirowatch.local",
-  "password": "Admin123!"
-}
-```
-
-Response:
-
-```json
-{
-  "token": "eyJ...",
-  "expiresAt": "2026-06-07T13:00:00Z",
-  "user": {
-    "id": "...",
-    "email": "admin@envirowatch.local",
-    "role": "Admin"
-  }
-}
-```
-
-Use the token in requests: `Authorization: Bearer <token>`
-
-In Swagger click **Authorize** and enter `Bearer <token>`.
-
-### Role rules (for upcoming protected endpoints)
-
-| Role | Access |
-|------|--------|
-| Viewer | Read-only |
-| Analyst | Read + create/update (alerts, observations) |
-| Admin | Full access + user management |
-
-`GET /api/data/snapshots` and SignalR remain **public** so the frontend can build charts without login.
-
-## Alerts (Phase 5)
-
-Threshold alerts with background checking every 30 seconds.
-
-### Endpoints (require JWT)
+Background checker runs every 30s with a 5-minute cooldown per alert.
 
 | Method | Endpoint | Role |
 |--------|----------|------|
-| POST | `/api/alerts` | Analyst, Admin |
-| GET | `/api/alerts` | Any authenticated |
+| POST | `/api/alerts` | Analyst+ |
+| GET | `/api/alerts` | Authenticated (own alerts) |
 | GET | `/api/alerts/{id}/logs` | Owner or Admin |
 | DELETE | `/api/alerts/{id}` | Owner (Analyst+) or Admin |
 
-### Create alert
-
-```http
-POST /api/alerts
-Authorization: Bearer <token>
-Content-Type: application/json
-
+```json
 {
   "metric": "temperature",
   "region": "Wroclaw,PL",
@@ -259,280 +282,52 @@ Content-Type: application/json
 
 `condition`: `Above` or `Below`
 
-### How checking works
+### Manual observations
 
-1. `AlertProcessorBackgroundService` runs every 30s
-2. For each active alert, loads latest snapshot for `region` + `metric`
-3. If threshold exceeded → writes `AlertLog`
-4. **Cooldown** (default 5 min) prevents duplicate logs for the same alert
-5. `notifyEmail: true` → logs email stub (real SMTP later)
-
-### Test flow
-
-1. Login as admin
-2. Create alert with low threshold (e.g. `temperature` above `0` for Wroclaw,PL)
-3. Wait ~30s
-4. `GET /api/alerts/{id}/logs` → should show triggered entries
-
-## External APIs (Phase 6)
-
-All sources are fetched **in parallel** every 30 seconds via `DataFetchService`.
-
-| Source | Client | Metrics | API key |
-|--------|--------|---------|---------|
-| `openmeteo` | OpenMeteoClient | temperature, humidity, wind | No |
-| `openweather` | OpenWeatherClient | temperature, humidity, wind | Yes |
-| `openaq` | OpenAQClient | pm25, pm10, aqi | No |
-| `opensky` | OpenSkyClient | aircraft_count, avg_altitude | No |
-
-### OpenWeather setup
-
-Add your key to `.env`:
-
-```
-OPENWEATHER_API_KEY=your-key-here
-```
-
-Or `OpenWeather:ApiKey` in `appsettings.json`. Without a key, OpenWeather is skipped.
-
-### Query by source
-
-```http
-GET /api/data/snapshots?source=opensky&metric=aircraft_count
-GET /api/data/snapshots?source=openaq&metric=pm25
-GET /api/data/snapshots?source=openweather&metric=temperature
-```
-
-SignalR `DataUpdate` events still aggregate **weather** metrics (openmeteo + openweather).
-
-> **OpenWeather note:** `.env` is loaded automatically on startup. If OpenWeather returns 401, generate a new key at [openweathermap.org/api](https://openweathermap.org/api) — new keys can take up to 2 hours to activate.
-
-## Manual observations (Phase 7)
-
-Analyst+ can submit field measurements. Data is stored in `ManualObservations` and mirrored to `DataSnapshots` with `source=manual`.
+Analyst+ submit field measurements. Stored in `ManualObservations` and mirrored to snapshots with `source=manual`.
 
 ```http
 POST /api/observations
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "region": "Wroclaw,PL",
-  "metric": "temperature",
-  "value": 22.5,
-  "unit": "°C",
-  "lat": 51.1,
-  "lon": 17.0,
-  "notes": "Field reading",
-  "observedAt": "2026-06-07T14:00:00Z"
-}
+GET  /api/observations
 ```
 
-```http
-GET /api/observations
-Authorization: Bearer <token>
-```
-
-Charts can include manual data via:
-```http
-GET /api/data/snapshots?source=manual&metric=temperature
-```
-
-## Dashboards & widgets (Phase 8)
-
-User-configurable dashboards with widgets for charts, metric cards, and maps.
-
-### Dashboard endpoints (JWT)
+### Dashboards & widgets
 
 | Method | Endpoint | Role |
 |--------|----------|------|
-| POST | `/api/dashboards` | Analyst+ |
-| GET | `/api/dashboards` | Authenticated |
-| GET | `/api/dashboards/{id}` | Owner or Admin |
-| PUT | `/api/dashboards/{id}` | Owner (Analyst+) or Admin |
-| DELETE | `/api/dashboards/{id}` | Owner (Analyst+) or Admin |
+| POST/GET/PUT/DELETE | `/api/dashboards` | Authenticated |
+| POST/PUT/DELETE | `/api/dashboards/{id}/widgets` | Analyst+ |
 
-### Widget endpoints
+Widget types: `LineChart`, `MetricCard`, `Map`
+
+### Admin
 
 | Method | Endpoint | Role |
 |--------|----------|------|
-| POST | `/api/dashboards/{id}/widgets` | Analyst+ |
-| PUT | `/api/dashboards/{id}/widgets/{widgetId}` | Analyst+ |
-| DELETE | `/api/dashboards/{id}/widgets/{widgetId}` | Analyst+ |
+| GET | `/api/admin/stats` | Admin |
+| GET | `/api/admin/users` | Admin |
+| PUT | `/api/admin/users/{id}/role` | Admin |
 
-### Widget types
+Snapshot cleanup (data older than 30 days) runs automatically as a background service — there is no manual trigger endpoint.
 
-`LineChart`, `MetricCard`, `Map`
+---
 
-### Example: create dashboard + widget
+## Running tests
 
-```http
-POST /api/dashboards
-Authorization: Bearer <token>
-
-{ "name": "Wrocław Monitor", "description": "Live weather panel" }
-```
-
-```http
-POST /api/dashboards/{dashboardId}/widgets
-Authorization: Bearer <token>
-
-{
-  "title": "Temperature chart",
-  "type": "LineChart",
-  "metric": "temperature",
-  "region": "Wroclaw,PL",
-  "source": "openmeteo",
-  "configJson": "{\"color\":\"#3b82f6\"}",
-  "sortOrder": 0
-}
-```
-
-Frontend loads widget config from dashboard API, then fetches chart data from `/api/data/snapshots` using `metric`, `region`, and `source` from each widget.
-
-## Admin & maintenance (Phase 9)
-
-- **FluentValidation** on register, login, alerts, observations, dashboards, widgets
-- **Snapshot cleanup** — deletes data older than 30 days (configurable in `Cleanup` section)
-- **Docker** — full stack via `docker compose up -d`
-- **Admin stats** — `GET /api/admin/stats` (users, snapshots, alerts, dashboards)
-
-```http
-GET /api/admin/stats
-Authorization: Bearer <admin-token>
+```bash
+cd backend
+dotnet test
 ```
 
 ---
 
-# Partner frontend specification
+## Troubleshooting
 
-Backend is **complete**. Below is what the React frontend should implement.
-
-## Tech stack (recommended)
-
-- React 18 + TypeScript + Vite
-- `@microsoft/signalr` for real-time
-- React Router for pages
-- Chart library (Recharts, Chart.js, or similar)
-- Leaflet or Mapbox for map view
-
-## Base URLs
-
-| Service | URL |
-|---------|-----|
-| REST API | `http://localhost:5000` |
-| SignalR Hub | `http://localhost:5000/hubs/dashboard` |
-| Swagger | `http://localhost:5000/swagger` |
-
-## Pages to build
-
-### 1. Login / Register (Phase 4)
-- `POST /api/auth/login` → store `token` in memory/localStorage
-- `POST /api/auth/register` → auto-login
-- `GET /api/auth/me` → current user + role
-- Send header: `Authorization: Bearer <token>`
-
-Dev admin: `admin@envirowatch.local` / `Admin123!`
-
-### 2. Live monitoring / Charts (Phases 1–3) — **start here**
-- **History:** `GET /api/data/snapshots?region=PL&metric=temperature&from=&to=`
-- **Live:** SignalR event `DataUpdate`:
-  ```json
-  { "type": "weather", "region": "Wroclaw,PL", "data": { "temperature": 18.4, "humidity": 65, "wind": 12 }, "timestamp": "..." }
-  ```
-- Line charts for temperature, humidity, wind
-- Optional: filter by `source` (openmeteo, openaq, opensky, manual)
-
-### 3. Map view (Phase 6)
-- Marker on Wrocław (51.1, 17.0)
-- Show latest metrics in popup from `/api/data/snapshots`
-- Optional: aircraft count from `source=opensky&metric=aircraft_count`
-
-### 4. Alert config UI (Phase 5) — Analyst+
-- List: `GET /api/alerts`
-- Create: `POST /api/alerts` with `{ metric, region, threshold, condition, notifyEmail }`
-- History: `GET /api/alerts/{id}/logs`
-- Delete: `DELETE /api/alerts/{id}`
-
-### 5. Manual observation form (Phase 7) — Analyst+
-- `POST /api/observations` — field measurement form
-- `GET /api/observations` — list user's entries
-
-### 6. Dashboard builder (Phase 8) — Analyst+
-- `GET /api/dashboards` — list user dashboards
-- `POST /api/dashboards` — create panel
-- `POST /api/dashboards/{id}/widgets` — add widget
-- Widget types: `LineChart`, `MetricCard`, `Map`
-- Render each widget using its `metric`, `region`, `source` against `/api/data/snapshots` + SignalR
-
-### 7. Admin panel (Phase 9) — Admin only
-- `GET /api/admin/stats` — overview cards
-- `GET /api/admin/users` — user table
-- `PUT /api/admin/users/{id}/role` — change role
-
-## Role-based UI
-
-| Role | Can do |
-|------|--------|
-| Viewer | View charts, dashboards (read-only) |
-| Analyst | + create alerts, observations, dashboards |
-| Admin | + user management, admin stats |
-
-## Suggested build order for partner
-
-```
-1. Vite + React + routing + API client with JWT
-2. Live charts page (REST history + SignalR)     ← unblocks demo
-3. Login / Register
-4. Dashboard builder
-5. Alerts UI
-6. Map view
-7. Manual observations form
-8. Admin panel (if Admin user available)
-```
-
-## TypeScript types (copy-paste ready)
-
-```typescript
-interface DataSnapshot {
-  source: string;
-  metric: string;
-  value: number;
-  unit: string | null;
-  region: string;
-  lat: number | null;
-  lon: number | null;
-  timestamp: string;
-}
-
-interface DataUpdate {
-  type: "weather";
-  region: string;
-  data: { temperature: number; humidity: number; wind: number };
-  timestamp: string;
-}
-
-interface AuthResponse {
-  token: string;
-  expiresAt: string;
-  user: { id: string; email: string; role: "Admin" | "Analyst" | "Viewer" };
-}
-
-interface Dashboard {
-  id: string;
-  name: string;
-  description: string | null;
-  widgets: Widget[];
-}
-
-interface Widget {
-  id: string;
-  title: string;
-  type: "LineChart" | "MetricCard" | "Map";
-  metric: string;
-  region: string;
-  source: string | null;
-  configJson: string | null;
-  sortOrder: number;
-}
-```
+| Symptom | Likely cause |
+|---------|--------------|
+| Login works but `/api/auth/me` returns 401 | Stale token in browser — clear `localStorage` key `envirowatch_token` |
+| Frontend 404 on `/api/...` in Docker | Rebuild frontend: `docker compose up -d --build frontend` |
+| Frontend CORS error on `:5173` | Set `VITE_API_URL=` empty to use Vite proxy, or ensure API CORS allows `:5173` |
+| Port 5000 already in use | Another process or old `envirowatch-api` container — `docker compose down` or change port |
+| `relation "Dashboards" does not exist` | Run API once to apply EF migrations, or recreate DB volume |
+| SignalR connected but no events | Check API logs for fetch/mapping errors; both openmeteo and openweather send `temperature` |

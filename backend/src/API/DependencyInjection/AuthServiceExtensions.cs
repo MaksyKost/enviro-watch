@@ -2,7 +2,6 @@ using System.Text;
 using EnviroWatch.Application.Authorization;
 using EnviroWatch.Application.Configuration;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
@@ -29,10 +28,29 @@ public static class AuthServiceExtensions
                 "JWT secret must be at least 32 characters.")
             .ValidateOnStart();
 
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer();
+        var jwtSection = configuration.GetSection(JwtOptions.SectionName);
+        var secret = configuration["JWT_SECRET"]
+            ?? jwtSection["Secret"]
+            ?? throw new InvalidOperationException("JWT secret is not configured.");
+        var issuer = jwtSection["Issuer"] ?? "envirowatch";
+        var audience = jwtSection["Audience"] ?? "envirowatch";
 
-        services.AddSingleton<IConfigureOptions<JwtBearerOptions>, ConfigureJwtBearerOptions>();
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =>
+            {
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = issuer,
+                    ValidAudience = audience,
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret)),
+                    RoleClaimType = System.Security.Claims.ClaimTypes.Role,
+                    NameClaimType = System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub
+                };
+            });
 
         services.AddAuthorization(options =>
         {
@@ -82,31 +100,5 @@ public static class AuthServiceExtensions
         });
 
         return services;
-    }
-
-    private sealed class ConfigureJwtBearerOptions : IConfigureOptions<JwtBearerOptions>
-    {
-        private readonly JwtOptions _jwtOptions;
-
-        public ConfigureJwtBearerOptions(IOptions<JwtOptions> jwtOptions)
-        {
-            _jwtOptions = jwtOptions.Value;
-        }
-
-        public void Configure(JwtBearerOptions options)
-        {
-            options.TokenValidationParameters = new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                ValidateIssuerSigningKey = true,
-                ValidIssuer = _jwtOptions.Issuer,
-                ValidAudience = _jwtOptions.Audience,
-                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtOptions.Secret)),
-                RoleClaimType = System.Security.Claims.ClaimTypes.Role,
-                NameClaimType = System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub
-            };
-        }
     }
 }
